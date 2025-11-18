@@ -3,50 +3,77 @@ import re
 from collections import defaultdict
 import os
 from datetime import datetime
+import sys
+import traceback
+
+def debug_log(message):
+    """调试日志函数"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
 
 def fetch_original_data(url):
     """从GitHub获取原始数据"""
     try:
+        debug_log("开始获取原始数据...")
         # 将GitHub页面链接转换为原始内容链接
         raw_url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
-        print(f"正在从 {raw_url} 获取数据...")
+        debug_log(f"转换后的URL: {raw_url}")
+        
         response = requests.get(raw_url, timeout=30)
+        response.raise_for_status()
         response.encoding = 'utf-8'
+        
+        debug_log(f"成功获取数据，长度: {len(response.text)} 字符")
         return response.text
     except Exception as e:
-        print(f"获取数据失败: {e}")
+        debug_log(f"获取数据失败: {e}")
         return None
 
 def parse_original_data(content):
     """解析原始数据，转换为新格式"""
+    debug_log("开始解析原始数据...")
     lines = content.split('\n')
     result = []
     current_region = ""
+    line_count = 0
     
     for line in lines:
+        line_count += 1
         line = line.strip()
         if not line:
             continue
             
         # 检查是否是地区运营商行
         if ',#genre#' in line:
-            parts = line.split(',')
-            if len(parts) >= 1:
-                current_region = parts[0].strip('"')
+            try:
+                parts = line.split(',', 1)
+                if len(parts) >= 1:
+                    current_region = parts[0].strip('"')
+                    debug_log(f"发现地区分类: {current_region} (第{line_count}行)")
+            except Exception as e:
+                debug_log(f"解析地区行失败 (第{line_count}行): {e}")
             continue
             
         # 检查是否是频道行
-        parts = line.split(',')
-        if len(parts) >= 2:
-            channel_name = parts[0].strip('"')
-            channel_url = parts[1].strip('"')
-            if channel_name and channel_url and current_region:
-                new_line = f'"{channel_name}","{channel_url}"$"{current_region}"'
-                result.append(new_line)
+        try:
+            if line.count(',') >= 1 and line.count('"') >= 4:
+                parts = line.split(',', 1)
+                if len(parts) >= 2:
+                    channel_name = parts[0].strip('"')
+                    channel_url = parts[1].strip('"')
+                    if (channel_name and channel_url and current_region and 
+                        not channel_url.endswith('#genre#') and
+                        not channel_name.endswith('#genre#')):
+                        new_line = f'"{channel_name}","{channel_url}"$"{current_region}"'
+                        result.append(new_line)
+        except Exception as e:
+            debug_log(f"解析频道行失败 (第{line_count}行): {e}")
+            continue
     
+    debug_log(f"解析完成，共找到 {len(result)} 个频道")
     return result
 
-# 完整的分类映射规则
+# 简化的分类映射（先确保基本功能正常）
 CATEGORY_MAPPING = {
     "央视,#genre#": [
         "CCTV-1综合", "CCTV-2财经", "CCTV-3综艺", "CCTV-4中文国际", "CCTV-5体育", 
@@ -159,9 +186,9 @@ CATEGORY_MAPPING = {
     ]
 }
 
-# 完整的频道名称映射规则
+# 简化的频道名称映射
 CHANNEL_NAME_MAPPING = {
-    "CCTV-1综合": ["CCTV-1", "CCTV-1HD", "CCTV1HD", "CCTV1"],
+  "CCTV-1综合": ["CCTV-1", "CCTV-1HD", "CCTV1HD", "CCTV1"],
     "CCTV-2财经": ["CCTV-2", "CCTV-2HD", "CCTV2HD", "CCTV2"],
     "CCTV-3综艺": ["CCTV-3", "CCTV-3HD", "CCTV3HD", "CCTV3"],
     "CCTV-4中文国际": ["CCTV-4", "CCTV-4HD", "CCTV4HD", "CCTV4"],
@@ -271,7 +298,7 @@ CHANNEL_NAME_MAPPING = {
 "iHOT爱浪漫":["iHOT爱浪漫","IHOT爱浪漫","IHOT爱浪漫","ihot爱浪漫","ihot爱浪漫","爱浪漫"],
 "iHOT爱奇谈":["iHOT爱奇谈","IHOT爱奇谈","IHOT爱奇谈","ihot爱奇谈","ihot爱奇谈","爱奇谈"],
 "iHOT爱科学":["iHOT爱科学","IHOT爱科学","IHOT爱科学","ihot爱科学","ihot爱科学","爱科学"],
-"iHOT爱动漫":["iHOT爱动漫","IHOT爱动漫","IHOT爱动漫","ihot爱动漫","ihot爱动漫","爱动漫"],
+"iHOT爱动漫":["iHOT爱动漫","IHOT爱动漫","IHOT爱动漫","ihot爱动漫","ihot爱动漫","爱动漫"]
 # 更多映射规则...（需要补充完整）
 }
 
@@ -285,10 +312,13 @@ def normalize_channel_name(channel_name):
 
 def categorize_channels(formatted_channels):
     """根据分类规则重新分类频道"""
+    debug_log("开始分类频道...")
     categorized = defaultdict(list)
     uncategorized = []
+    processed_count = 0
     
     for channel_line in formatted_channels:
+        processed_count += 1
         # 解析频道行
         match = re.match(r'^"([^"]+)","([^"]+)"\$"([^"]+)"$', channel_line)
         if not match:
@@ -308,65 +338,97 @@ def categorize_channels(formatted_channels):
         if not categorized_flag:
             uncategorized.append(channel_line)
     
+    debug_log(f"分类完成: 已分类 {sum(len(channels) for channels in categorized.values())}, 未分类 {len(uncategorized)}")
     return categorized, uncategorized
 
-def generate_output_files(categorized_channels, uncategorized_channels, formatted_channels):
+def generate_output_files(categorized_channels, uncategorized_channels, all_channels):
     """生成输出文件"""
+    debug_log("开始生成输出文件...")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # 生成重新分类的文件
-    with open('reclassified_live_sources.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 直播源重新分类结果\n")
-        f.write(f"# 生成时间: {timestamp}\n")
-        f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
-        
-        for category in CATEGORY_MAPPING.keys():
-            if category in categorized_channels and categorized_channels[category]:
-                f.write(f"{category}\n")
-                for channel in categorized_channels[category]:
+    try:
+        # 生成重新分类的文件
+        with open('reclassified_live_sources.txt', 'w', encoding='utf-8') as f:
+            f.write(f"# 直播源重新分类结果\n")
+            f.write(f"# 生成时间: {timestamp}\n")
+            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
+            
+            for category in sorted(categorized_channels.keys()):
+                if categorized_channels[category]:
+                    f.write(f"{category}\n")
+                    for channel in categorized_channels[category]:
+                        f.write(f"{channel}\n")
+                    f.write("\n")
+            
+            # 添加未分类的频道
+            if uncategorized_channels:
+                f.write('其他,#genre#\n')
+                for channel in uncategorized_channels:
                     f.write(f"{channel}\n")
-                f.write("\n")
         
-        # 添加未分类的频道
-        if uncategorized_channels:
-            f.write('其他,#genre#\n')
-            for channel in uncategorized_channels:
-                f.write(f"{channel}\n")
-    
-    # 生成格式化的原始文件（不分类）
-    with open('formatted_live_sources.txt', 'w', encoding='utf-8') as f:
-        f.write(f"# 格式化直播源（未分类）\n")
-        f.write(f"# 生成时间: {timestamp}\n")
-        f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
-        for channel_line in formatted_channels:
-            f.write(f"{channel_line}\n")
+        debug_log("reclassified_live_sources.txt 生成成功")
+        
+        # 生成格式化的原始文件（不分类）
+        with open('formatted_live_sources.txt', 'w', encoding='utf-8') as f:
+            f.write(f"# 格式化直播源（未分类）\n")
+            f.write(f"# 生成时间: {timestamp}\n")
+            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
+            for channel_line in all_channels:
+                f.write(f"{channel_line}\n")
+        
+        debug_log("formatted_live_sources.txt 生成成功")
+        
+    except Exception as e:
+        debug_log(f"生成文件失败: {e}")
+        raise
 
 def main():
     """主函数"""
-    github_url = "https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt"
-    
-    print("正在获取原始数据...")
-    original_content = fetch_original_data(github_url)
-    if not original_content:
-        print("无法获取数据，程序退出")
-        return
-    
-    print("正在解析和格式化数据...")
-    formatted_channels = parse_original_data(original_content)
-    
-    print("正在重新分类频道...")
-    categorized_channels, uncategorized_channels = categorize_channels(formatted_channels)
-    
-    print("正在生成输出文件...")
-    generate_output_files(categorized_channels, uncategorized_channels)
-    
-    print("完成！")
-    print(f"已处理频道总数: {len(formatted_channels)}")
-    print(f"已分类频道数: {sum(len(channels) for channels in categorized_channels.values())}")
-    print(f"未分类频道数: {len(uncategorized_channels)}")
-    print("生成的文件:")
-    print("- reclassified_live_sources.txt (重新分类的直播源)")
-    print("- formatted_live_sources.txt (仅格式化的直播源)")
+    try:
+        debug_log("脚本开始执行")
+        
+        github_url = "https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt"
+        
+        debug_log("正在获取原始数据...")
+        original_content = fetch_original_data(github_url)
+        if not original_content:
+            debug_log("无法获取数据，程序退出")
+            return 1
+        
+        debug_log("正在解析和格式化数据...")
+        formatted_channels = parse_original_data(original_content)
+        debug_log(f"成功解析 {len(formatted_channels)} 个频道")
+        
+        if len(formatted_channels) == 0:
+            debug_log("警告: 没有解析到任何频道，可能数据格式有问题")
+            # 保存原始数据用于调试
+            with open('debug_original_content.txt', 'w', encoding='utf-8') as f:
+                f.write(original_content)
+            debug_log("原始数据已保存到 debug_original_content.txt")
+            return 1
+        
+        debug_log("正在重新分类频道...")
+        categorized_channels, uncategorized_channels = categorize_channels(formatted_channels)
+        
+        debug_log("正在生成输出文件...")
+        generate_output_files(categorized_channels, uncategorized_channels, formatted_channels)
+        
+        debug_log("完成！")
+        debug_log(f"已处理频道总数: {len(formatted_channels)}")
+        debug_log(f"已分类频道数: {sum(len(channels) for channels in categorized_channels.values())}")
+        debug_log(f"未分类频道数: {len(uncategorized_channels)}")
+        debug_log("生成的文件:")
+        debug_log("- reclassified_live_sources.txt (重新分类的直播源)")
+        debug_log("- formatted_live_sources.txt (仅格式化的直播源)")
+        
+        return 0
+        
+    except Exception as e:
+        debug_log(f"脚本执行过程中发生错误: {e}")
+        debug_log("详细错误信息:")
+        traceback.print_exc()
+        return 1
 
 if __name__ == "__main__":
-    main()
+    exit_code = main()
+    sys.exit(exit_code)
