@@ -1,38 +1,52 @@
-name: 定时更新直播源
+name: Update Live Sources
+
 on:
   schedule:
-    - cron: '0 1,8 * * *'  # UTC时间，UTC+8=北京时间）
-  workflow_dispatch:  # 允许手动触发，方便测试
-permissions:
-  contents: write
+    - cron: '0 1,8 * * *'
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches: [ main, master ]
+
 jobs:
-  update-live-sources:
+  update-sources:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: 拉取仓库代码
-        uses: actions/checkout@v4
-
-      - name: 设置Python环境（3.10版本）
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'  # 缓存pip依赖，加速运行
-
-      - name: 安装依赖（requests库）
-        run: pip install requests
-
-      - name: 执行直播源处理脚本
-        run: python live_source_classifier.py
-
-      - name: 提交更新后的直播源文件
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add sorted_live_sources.txt
-          # 仅当文件有变更时提交
-          if git diff --quiet --staged; then
-            echo "直播源文件无更新，跳过提交"
-          else
-            git commit -m "自动更新直播源（$(date +'%Y-%m-%d %H:%M:%S')）"
-            git push
-          fi
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+        
+    - name: Run processing script
+      run: |
+        python process_live_sources.py
+      id: run-script
+        
+    - name: Upload debug files (if any)
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: debug-files
+        path: |
+          debug_original_content.txt
+        retention-days: 1
+        
+    - name: Commit and push if changes
+      if: steps.run-script.outcome == 'success'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        timestamp=$(date +'%Y-%m-%d %H:%M')
+        git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update live sources $timestamp"
+        git push
