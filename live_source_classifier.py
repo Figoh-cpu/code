@@ -310,7 +310,7 @@ def categorize_channels(formatted_channels):
     
     return categorized, uncategorized
 
-def generate_output_files(categorized_channels, uncategorized_channels):
+def generate_output_files(categorized_channels, uncategorized_channels, formatted_channels):
     """生成输出文件"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
