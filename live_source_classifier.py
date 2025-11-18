@@ -123,7 +123,7 @@ CHANNEL_MAPPING = {
 }
 
 # 频道分类目录（完整分类见文档）
-CATEGORY_MAP = {
+CATEGORY_MAPPING = {
     "央视,#genre#": [
         "CCTV-1综合","CCTV-2财经","CCTV-3综艺","CCTV-4中文国际","CCTV-5体育","CCTV-5+体育赛事","CCTV-6电影","CCTV-7国防军事","CCTV-8电视剧","CCTV-9纪录","CCTV-10科教","CCTV-11戏曲","CCTV-12社会与法","CCTV-13新闻","CCTV-14少儿","CCTV-15音乐","CCTV-16奥林匹克","CCTV-16奥林匹克4K","CCTV-17农业农村","CCTV-4欧洲","CCTV-4美洲","CCTV-4K","CCTV-8K","CCTV风云剧场","CCTV怀旧剧场","CCTV第一剧场","CCTV风云足球","CCTV央视台球","CCTV高尔夫·网球","CCTV风云音乐","CCTV央视文化精品","CCTV卫生健康","CCTV电视指南","CCTV兵器科技","CCTV女性时尚","CCTV世界地理","CHC家庭影院","CHC动作电影","CHC影迷电影","中央新影-中学生","中央新影-老故事","中央新影-发现之旅","CGTN","CGTN-纪录","CGTN-法语","CGTN-俄语","CGTN-西班牙语","CGTN-阿拉伯语","中国教育-1","中国教育-2","中国教育-4","早期教育"
         # 完整央视列表
@@ -272,7 +272,7 @@ def process_raw_data(raw_lines):
 
 def classify_channels(processed_lines):
     """按分类目录重分类频道"""
-    classified = {category: [] for category in CATEGORY_MAP.keys()}
+    classified = {category: [] for category in CATEGORY_MAPPING.keys()}
     unclassified = []
     
     for line in processed_lines:
@@ -281,7 +281,7 @@ def classify_channels(processed_lines):
         classified_flag = False
         
         # 匹配分类目录
-        for category, channels in CATEGORY_MAP.items():
+        for category, channels in CATEGORY_MAPPING.items():
             if channel_name in channels:
                 classified[category].append(line)
                 classified_flag = True
