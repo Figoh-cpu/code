@@ -29,43 +29,89 @@ def fetch_original_data(url):
         debug_log(f"获取数据失败: {e}")
         return None
 
-def parse_original_data(content):
-    """解析原始数据，转换为新格式"""
-    debug_log("开始解析原始数据...")
+def parse_original_data_skip_first_two_lines(content):
+    """解析原始数据，跳过前两行"""
+    debug_log("开始解析原始数据（跳过前两行）...")
     lines = content.split('\n')
+    
+    # 跳过前两行
+    if len(lines) > 2:
+        lines = lines[2:]
+        debug_log("已跳过前两行")
+    else:
+        debug_log("数据行数不足，未跳过任何行")
+    
     result = []
     current_region = ""
     line_count = 0
+    valid_channels = 0
     
     for line in lines:
         line_count += 1
-        line = line.strip()
+        original_line = line.strip()
+        line = original_line
+        
         if not line:
             continue
             
-        # 检查是否是地区运营商行
-        if ',#genre#' in line:
+        # 多种可能的地区行格式
+        if '#genre#' in line.lower():
             try:
-                parts = line.split(',', 1)
-                if len(parts) >= 1:
-                    current_region = parts[0].strip('"')
-                    debug_log(f"发现地区分类: {current_region} (第{line_count}行)")
+                # 尝试多种格式的地区行
+                if line.startswith('"') and line.endswith('"'):
+                    # 格式: "地区运营商","#genre#"
+                    parts = line.split(',', 1)
+                    if len(parts) >= 1:
+                        current_region = parts[0].strip('"')
+                        debug_log(f"发现地区分类: {current_region}")
+                else:
+                    # 格式: 地区运营商,#genre#
+                    parts = line.split(',', 1)
+                    if len(parts) >= 1:
+                        current_region = parts[0].strip().strip('"')
+                        debug_log(f"发现地区分类: {current_region}")
             except Exception as e:
                 debug_log(f"解析地区行失败 (第{line_count}行): {e}")
             continue
             
-        # 检查是否是频道行
+        # 多种可能的频道行格式
         try:
-            if line.count(',') >= 1 and line.count('"') >= 4:
-                parts = line.split(',', 1)
+            # 跳过明显不是频道行的内容
+            if not line or '#genre#' in line.lower() or len(line) < 5:
+                continue
+                
+            # 尝试多种频道行格式
+            channel_name = ""
+            channel_url = ""
+            
+            # 格式1: "频道名称","地址"
+            if line.startswith('"') and line.count('"') >= 4:
+                parts = line.split('","')
                 if len(parts) >= 2:
                     channel_name = parts[0].strip('"')
                     channel_url = parts[1].strip('"')
-                    if (channel_name and channel_url and current_region and 
-                        not channel_url.endswith('#genre#') and
-                        not channel_name.endswith('#genre#')):
-                        new_line = f'"{channel_name}","{channel_url}"$"{current_region}"'
-                        result.append(new_line)
+            
+            # 格式2: 频道名称,地址
+            elif ',' in line and not channel_name:
+                parts = line.split(',', 1)
+                if len(parts) >= 2:
+                    channel_name = parts[0].strip().strip('"')
+                    channel_url = parts[1].strip().strip('"')
+            
+            # 验证并保存有效的频道
+            if (channel_name and channel_url and current_region and 
+                not channel_url.endswith('#genre#') and
+                not channel_name.endswith('#genre#') and
+                ('http' in channel_url.lower() or 'rtmp' in channel_url.lower() or 
+                 'rtsp' in channel_url.lower() or 'm3u8' in channel_url.lower())):
+                
+                new_line = f'"{channel_name}","{channel_url}"$"{current_region}"'
+                result.append(new_line)
+                valid_channels += 1
+                
+                if valid_channels <= 3:  # 只记录前3个成功解析的频道用于调试
+                    debug_log(f"成功解析频道: {channel_name}")
+                    
         except Exception as e:
             debug_log(f"解析频道行失败 (第{line_count}行): {e}")
             continue
@@ -73,7 +119,7 @@ def parse_original_data(content):
     debug_log(f"解析完成，共找到 {len(result)} 个频道")
     return result
 
-# 简化的分类映射（先确保基本功能正常）
+# 简化的分类映射
 CATEGORY_MAPPING = {
     "央视,#genre#": [
         "CCTV-1综合", "CCTV-2财经", "CCTV-3综艺", "CCTV-4中文国际", "CCTV-5体育", 
@@ -188,7 +234,7 @@ CATEGORY_MAPPING = {
 
 # 简化的频道名称映射
 CHANNEL_NAME_MAPPING = {
-  "CCTV-1综合": ["CCTV-1", "CCTV-1HD", "CCTV1HD", "CCTV1"],
+    "CCTV-1综合": ["CCTV-1", "CCTV-1HD", "CCTV1HD", "CCTV1"],
     "CCTV-2财经": ["CCTV-2", "CCTV-2HD", "CCTV2HD", "CCTV2"],
     "CCTV-3综艺": ["CCTV-3", "CCTV-3HD", "CCTV3HD", "CCTV3"],
     "CCTV-4中文国际": ["CCTV-4", "CCTV-4HD", "CCTV4HD", "CCTV4"],
@@ -298,16 +344,25 @@ CHANNEL_NAME_MAPPING = {
 "iHOT爱浪漫":["iHOT爱浪漫","IHOT爱浪漫","IHOT爱浪漫","ihot爱浪漫","ihot爱浪漫","爱浪漫"],
 "iHOT爱奇谈":["iHOT爱奇谈","IHOT爱奇谈","IHOT爱奇谈","ihot爱奇谈","ihot爱奇谈","爱奇谈"],
 "iHOT爱科学":["iHOT爱科学","IHOT爱科学","IHOT爱科学","ihot爱科学","ihot爱科学","爱科学"],
-"iHOT爱动漫":["iHOT爱动漫","IHOT爱动漫","IHOT爱动漫","ihot爱动漫","ihot爱动漫","爱动漫"]
+"iHOT爱动漫":["iHOT爱动漫","IHOT爱动漫","IHOT爱动漫","ihot爱动漫","ihot爱动漫","爱动漫"],
 # 更多映射规则...（需要补充完整）
 }
 
 def normalize_channel_name(channel_name):
     """标准化频道名称"""
     channel_name_clean = channel_name.strip()
+    
+    # 先精确匹配
     for standard_name, variants in CHANNEL_NAME_MAPPING.items():
         if channel_name_clean in variants:
             return standard_name
+    
+    # 然后模糊匹配
+    for standard_name, variants in CHANNEL_NAME_MAPPING.items():
+        for variant in variants:
+            if variant.lower() in channel_name_clean.lower() or channel_name_clean.lower() in variant.lower():
+                return standard_name
+                
     return channel_name_clean
 
 def categorize_channels(formatted_channels):
@@ -315,10 +370,8 @@ def categorize_channels(formatted_channels):
     debug_log("开始分类频道...")
     categorized = defaultdict(list)
     uncategorized = []
-    processed_count = 0
     
     for channel_line in formatted_channels:
-        processed_count += 1
         # 解析频道行
         match = re.match(r'^"([^"]+)","([^"]+)"\$"([^"]+)"$', channel_line)
         if not match:
@@ -395,16 +448,23 @@ def main():
             debug_log("无法获取数据，程序退出")
             return 1
         
-        debug_log("正在解析和格式化数据...")
-        formatted_channels = parse_original_data(original_content)
+        # 保存原始数据用于调试
+        with open('debug_original_content.txt', 'w', encoding='utf-8') as f:
+            f.write(original_content)
+        debug_log("原始数据已保存到 debug_original_content.txt")
+        
+        # 显示前5行用于调试
+        lines = original_content.split('\n')
+        debug_log("原始数据前5行:")
+        for i, line in enumerate(lines[:5]):
+            debug_log(f"行 {i+1}: {line}")
+        
+        debug_log("正在解析和格式化数据（跳过前两行）...")
+        formatted_channels = parse_original_data_skip_first_two_lines(original_content)
         debug_log(f"成功解析 {len(formatted_channels)} 个频道")
         
         if len(formatted_channels) == 0:
-            debug_log("警告: 没有解析到任何频道，可能数据格式有问题")
-            # 保存原始数据用于调试
-            with open('debug_original_content.txt', 'w', encoding='utf-8') as f:
-                f.write(original_content)
-            debug_log("原始数据已保存到 debug_original_content.txt")
+            debug_log("错误: 仍然没有解析到任何频道")
             return 1
         
         debug_log("正在重新分类频道...")
