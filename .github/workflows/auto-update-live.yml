@@ -2,7 +2,8 @@ name: Update Live Sources
 
 on:
   schedule:
-    - cron: '0 1,8 * * *'
+    # 每天UTC时间2点和9点运行（北京时间10点和17点）
+    - cron: '0 2,9 * * *'
   workflow_dispatch:  # 允许手动触发
   push:
     branches: [ main, master ]
