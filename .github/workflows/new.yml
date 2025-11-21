@@ -27,7 +27,13 @@ jobs:
       with:
         python-version: '3.9'
         
-    - name: Install dependencies
+    - name: Install ffmpeg
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+        ffprobe -version  # 验证安装
+        
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests
