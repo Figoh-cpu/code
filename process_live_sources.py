@@ -529,8 +529,9 @@ def categorize_channels(formatted_channels):
 def generate_output_files(categorized_channels, uncategorized_channels, all_channels):
     """生成输出文件"""
     debug_log("开始生成输出文件...")
-    
+    from datetime import datetime, timezone, timedelta
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+print(beijing_now)
     
     try:
         # 生成重新分类的文件 - 按照CATEGORY_MAPPING的顺序排列
