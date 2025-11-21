@@ -5,9 +5,6 @@ import os
 from datetime import datetime, timezone, timedelta
 import sys
 import traceback
-import subprocess
-import concurrent.futures
-import time
 
 def debug_log(message):
     """调试日志函数"""
@@ -151,128 +148,6 @@ def parse_original_data_skip_first_two_lines(content):
     
     debug_log(f"解析完成，共找到 {len(result)} 个频道，过滤了 {filtered_count} 个频道")
     return result
-
-def test_stream_with_ffprobe(url, timeout=10):
-    """
-    使用ffprobe检测流是否有效
-    返回: True(有效) / False(无效)
-    """
-    try:
-        # 构建ffprobe命令
-        cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-show_entries', 'stream=codec_type,duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            '-timeout', str(timeout * 1000000),  # 微秒
-            url
-        ]
-        
-        # 执行命令
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        
-        # 检查返回码和输出
-        if result.returncode == 0:
-            # 检查是否有视频流信息
-            if 'video' in result.stdout:
-                debug_log(f"流检测成功: {url}")
-                return True
-            else:
-                debug_log(f"流检测失败 - 无视频流: {url}")
-                return False
-        else:
-            debug_log(f"流检测失败 - 命令错误: {url}, 错误: {result.stderr}")
-            return False
-            
-    except subprocess.TimeoutExpired:
-        debug_log(f"流检测超时: {url}")
-        return False
-    except Exception as e:
-        debug_log(f"流检测异常: {url}, 异常: {e}")
-        return False
-
-def get_first_channel_by_region(formatted_channels):
-    """
-    获取每个地区运营商的第一个频道
-    返回: {地区运营商: (频道名称, 频道地址)}
-    """
-    region_first_channels = {}
-    
-    for channel_line in formatted_channels:
-        # 解析频道行 - 格式是: 频道名称,地址$地区运营商
-        match = re.match(r'^([^,]+),([^$]+)\$([^$]+)$', channel_line)
-        if not match:
-            continue
-            
-        channel_name, channel_url, region = match.groups()
-        
-        # 如果该地区运营商还没有记录，记录第一个频道
-        if region not in region_first_channels:
-            region_first_channels[region] = (channel_name, channel_url)
-            debug_log(f"记录地区运营商 '{region}' 的第一个频道: {channel_name}")
-    
-    debug_log(f"共找到 {len(region_first_channels)} 个不同的地区运营商")
-    return region_first_channels
-
-def test_regions_parallel(region_channels, max_workers=5):
-    """
-    并行测试地区运营商的有效性
-    返回: {地区运营商: True/False}
-    """
-    debug_log("开始并行测试地区运营商有效性...")
-    valid_regions = {}
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交所有测试任务
-        future_to_region = {}
-        for region, (channel_name, channel_url) in region_channels.items():
-            future = executor.submit(test_stream_with_ffprobe, channel_url)
-            future_to_region[future] = region
-        
-        # 收集结果
-        for future in concurrent.futures.as_completed(future_to_region):
-            region = future_to_region[future]
-            try:
-                is_valid = future.result()
-                valid_regions[region] = is_valid
-                debug_log(f"地区运营商 '{region}' 有效性: {is_valid}")
-            except Exception as e:
-                debug_log(f"测试地区运营商 '{region}' 时发生异常: {e}")
-                valid_regions[region] = False
-    
-    # 统计结果
-    valid_count = sum(1 for is_valid in valid_regions.values() if is_valid)
-    debug_log(f"地区运营商测试完成: 有效 {valid_count}/{len(valid_regions)}")
-    
-    return valid_regions
-
-def filter_channels_by_region_validity(formatted_channels, valid_regions):
-    """
-    根据地区运营商有效性过滤频道
-    """
-    debug_log("根据地区运营商有效性过滤频道...")
-    filtered_channels = []
-    removed_count = 0
-    
-    for channel_line in formatted_channels:
-        # 解析频道行 - 格式是: 频道名称,地址$地区运营商
-        match = re.match(r'^([^,]+),([^$]+)\$([^$]+)$', channel_line)
-        if not match:
-            continue
-            
-        channel_name, channel_url, region = match.groups()
-        
-        # 检查该地区运营商是否有效
-        if region in valid_regions and valid_regions[region]:
-            filtered_channels.append(channel_line)
-        else:
-            removed_count += 1
-            if removed_count <= 5:  # 只记录前5个被删除的频道用于调试
-                debug_log(f"删除无效地区运营商的频道: {channel_name} - {region}")
-    
-    debug_log(f"过滤完成: 保留 {len(filtered_channels)} 个频道，删除 {removed_count} 个频道")
-    return filtered_channels
 
 # 完整的分类映射（按照您要求的顺序）
 CATEGORY_MAPPING = {
@@ -576,7 +451,7 @@ CHANNEL_NAME_MAPPING = {
 "贵州公共频道": ["贵州卫视2"],
 "贵州影视文艺": ["贵州卫视3"],
 "贵州大众生活": ["贵州卫视4"],
-"贵州法制频道": ["贵州卫士5"],
+"贵州法制频道": ["贵州卫视5"],
 "贵州科教健康": ["贵州卫视6"],
 "贵州经济频道": ["贵州卫视7"],
 "重庆新闻频道": ["重庆新闻频道"],
@@ -675,7 +550,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
             
             # 添加未分类的频道
             if uncategorized_channels:
-                f.write('其他,#genre#\n')
+                f.write('其他频道,#genre#\n')
                 for channel in uncategorized_channels:
                     f.write(f"{channel}\n")
         
@@ -729,27 +604,14 @@ def main():
             debug_log("错误: 仍然没有解析到任何频道")
             return 1
         
-        # 新增：地区运营商有效性检测
-        debug_log("开始地区运营商有效性检测...")
-        
-        # 获取每个地区运营商的第一个频道
-        region_first_channels = get_first_channel_by_region(formatted_channels)
-        
-        # 并行测试地区运营商有效性
-        valid_regions = test_regions_parallel(region_first_channels, max_workers=5)
-        
-        # 根据有效性过滤频道
-        filtered_channels = filter_channels_by_region_validity(formatted_channels, valid_regions)
-        
         debug_log("正在重新分类频道...")
-        categorized_channels, uncategorized_channels = categorize_channels(filtered_channels)
+        categorized_channels, uncategorized_channels = categorize_channels(formatted_channels)
         
         debug_log("正在生成输出文件...")
-        generate_output_files(categorized_channels, uncategorized_channels, filtered_channels)
+        generate_output_files(categorized_channels, uncategorized_channels, formatted_channels)
         
         debug_log("完成！")
-        debug_log(f"原始频道总数: {len(formatted_channels)}")
-        debug_log(f"过滤后频道总数: {len(filtered_channels)}")
+        debug_log(f"已处理频道总数: {len(formatted_channels)}")
         debug_log(f"已分类频道数: {sum(len(channels) for channels in categorized_channels.values())}")
         debug_log(f"未分类频道数: {len(uncategorized_channels)}")
         debug_log("生成的文件:")
