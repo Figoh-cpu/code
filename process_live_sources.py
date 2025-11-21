@@ -529,6 +529,7 @@ def categorize_channels(formatted_channels):
 def generate_output_files(categorized_channels, uncategorized_channels, all_channels):
     """生成输出文件"""
     debug_log("开始生成输出文件...")
+    
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     
     try:
