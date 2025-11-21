@@ -535,7 +535,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
         # 生成重新分类的文件 - 按照CATEGORY_MAPPING的顺序排列
         with open('reclassified_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 直播源重新分类结果\n")
-            f.write(f"# 生成时间: {timestamp\n")
+            f.write(f"# 生成时间: {timestamp}\n")
             f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
             
             # 按照CATEGORY_MAPPING的顺序输出分类
@@ -557,7 +557,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
         # 生成格式化的原始文件（不分类）- 确保没有双引号
         with open('formatted_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 格式化直播源（未分类）\n")
-            f.write(f"# 生成时间: {timestamp\n")
+            f.write(f"# 生成时间: {timestamp}\n")
             f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
             for channel_line in all_channels:
                 # 确保行中没有双引号
