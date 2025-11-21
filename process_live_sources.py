@@ -2,14 +2,15 @@ import requests
 import re
 from collections import defaultdict
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import sys
 import traceback
 
 def debug_log(message):
     """调试日志函数"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}")
+    # 生成北京时间
+    beijing_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{beijing_time}] {message}")
 
 def fetch_original_data(url):
     """从GitHub获取原始数据"""
@@ -529,13 +530,14 @@ def categorize_channels(formatted_channels):
 def generate_output_files(categorized_channels, uncategorized_channels, all_channels):
     """生成输出文件"""
     debug_log("开始生成输出文件...")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 使用北京时间
+    timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     
     try:
         # 生成重新分类的文件 - 按照CATEGORY_MAPPING的顺序排列
         with open('reclassified_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 直播源重新分类结果\n")
-            f.write(f"# 生成时间: {timestamp}\n")
+            f.write(f"# 生成时间: {timestamp} (北京时间)\n")
             f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
             
             # 按照CATEGORY_MAPPING的顺序输出分类
@@ -557,7 +559,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
         # 生成格式化的原始文件（不分类）- 确保没有双引号
         with open('formatted_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 格式化直播源（未分类）\n")
-            f.write(f"# 生成时间: {timestamp}\n")
+            f.write(f"# 生成时间: {timestamp} (北京时间)\n")
             f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
             for channel_line in all_channels:
                 # 确保行中没有双引号
