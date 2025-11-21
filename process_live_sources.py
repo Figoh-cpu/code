@@ -675,7 +675,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
             
             # 添加未分类的频道
             if uncategorized_channels:
-                f.write('其他频道,#genre#\n')
+                f.write('其他,#genre#\n')
                 for channel in uncategorized_channels:
                     f.write(f"{channel}\n")
         
