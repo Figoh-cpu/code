@@ -3,7 +3,7 @@ name: new
 on:
   schedule:
     # 每天UTC时间2点和9点运行（北京时间10点和17点）
-    - cron: '0 2,9 * * *'
+    - cron: '0 5,12 * * *'
   workflow_dispatch:  # 允许手动触发
   push:
     branches: [ main, master ]
