@@ -5,8 +5,6 @@ import os
 from datetime import datetime, timezone, timedelta
 import sys
 import traceback
-import subprocess
-import json
 
 def debug_log(message):
     """调试日志函数"""
@@ -150,107 +148,6 @@ def parse_original_data_skip_first_two_lines(content):
     
     debug_log(f"解析完成，共找到 {len(result)} 个频道，过滤了 {filtered_count} 个频道")
     return result
-
-def test_stream_with_ffprobe(url, timeout=10):
-    """
-    使用ffprobe检测流地址是否有效
-    返回: (是否有效, 错误信息)
-    """
-    try:
-        # 构建ffprobe命令
-        cmd = [
-            'ffprobe',
-            '-v', 'quiet',
-            '-print_format', 'json',
-            '-show_format',
-            '-show_streams',
-            '-timeout', str(timeout * 1000000),  # 微秒
-            '-rw_timeout', str(timeout * 1000000),  # 微秒
-            url
-        ]
-        
-        # 执行命令
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
-        
-        if result.returncode == 0:
-            # 尝试解析JSON输出
-            try:
-                info = json.loads(result.stdout)
-                if info.get('streams') or info.get('format'):
-                    debug_log(f"✓ 流地址有效: {url}")
-                    return True, "流地址有效"
-                else:
-                    return False, "未找到流信息"
-            except json.JSONDecodeError:
-                return False, "JSON解析失败"
-        else:
-            error_msg = result.stderr.strip() if result.stderr else "未知错误"
-            debug_log(f"✗ 流地址无效: {url} - {error_msg}")
-            return False, error_msg
-            
-    except subprocess.TimeoutExpired:
-        debug_log(f"✗ 流检测超时: {url}")
-        return False, "检测超时"
-    except Exception as e:
-        debug_log(f"✗ 流检测异常: {url} - {str(e)}")
-        return False, str(e)
-
-def filter_valid_channels_by_region(formatted_channels, timeout=8):
-    """
-    按地区运营商过滤有效频道
-    每个地区运营商测试第一个频道，有效则保留该地区所有频道
-    """
-    debug_log("开始按地区运营商过滤有效频道...")
-    
-    # 按地区运营商分组
-    region_channels = defaultdict(list)
-    for channel_line in formatted_channels:
-        match = re.match(r'^([^,]+),([^$]+)\$([^$]+)$', channel_line)
-        if match:
-            channel_name, channel_url, region = match.groups()
-            region_channels[region].append((channel_name, channel_url))
-    
-    valid_channels = []
-    total_regions = len(region_channels)
-    processed_regions = 0
-    valid_regions = 0
-    invalid_regions = 0
-    
-    debug_log(f"发现 {total_regions} 个不同的地区运营商")
-    
-    for region, channels in region_channels.items():
-        processed_regions += 1
-        debug_log(f"处理地区 [{processed_regions}/{total_regions}]: {region} (包含 {len(channels)} 个频道)")
-        
-        if not channels:
-            continue
-            
-        # 测试该地区的第一个频道
-        first_channel_name, first_channel_url = channels[0]
-        debug_log(f"  测试第一个频道: {first_channel_name}")
-        
-        # 测试流地址
-        is_valid, error_msg = test_stream_with_ffprobe(first_channel_url, timeout)
-        
-        if is_valid:
-            # 如果测试通过，保留该地区的所有频道
-            valid_regions += 1
-            for channel_name, channel_url in channels:
-                valid_channels.append(f'{channel_name},{channel_url}${region}')
-            debug_log(f"  ✓ 地区 {region} 验证通过，保留 {len(channels)} 个频道")
-        else:
-            # 如果测试失败，删除该地区的所有频道
-            invalid_regions += 1
-            debug_log(f"  ✗ 地区 {region} 验证失败，删除 {len(channels)} 个频道 - {error_msg}")
-    
-    debug_log(f"地区运营商过滤完成:")
-    debug_log(f"- 总地区数: {total_regions}")
-    debug_log(f"- 有效地区: {valid_regions}")
-    debug_log(f"- 无效地区: {invalid_regions}")
-    debug_log(f"- 原有频道: {len(formatted_channels)}")
-    debug_log(f"- 过滤后频道: {len(valid_channels)}")
-    
-    return valid_channels
 
 # 完整的分类映射（按照您要求的顺序）
 CATEGORY_MAPPING = {
@@ -630,7 +527,7 @@ def categorize_channels(formatted_channels):
     debug_log(f"分类完成: 已分类 {sum(len(channels) for channels in categorized.values())}, 未分类 {len(uncategorized)}")
     return categorized, uncategorized
 
-def generate_output_files(categorized_channels, uncategorized_channels, all_channels, filtered_channels):
+def generate_output_files(categorized_channels, uncategorized_channels, all_channels):
     """生成输出文件"""
     debug_log("开始生成输出文件...")
     # 使用北京时间
@@ -641,8 +538,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
         with open('reclassified_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 直播源重新分类结果\n")
             f.write(f"# 生成时间: {timestamp} (北京时间)\n")
-            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n")
-            f.write(f"# 说明: 已使用ffprobe检测过滤无效直播源\n\n")
+            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
             
             # 按照CATEGORY_MAPPING的顺序输出分类
             for category in CATEGORY_MAPPING.keys():
@@ -664,21 +560,13 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
         with open('formatted_live_sources.txt', 'w', encoding='utf-8') as f:
             f.write(f"# 格式化直播源（未分类）\n")
             f.write(f"# 生成时间: {timestamp} (北京时间)\n")
-            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n")
-            f.write(f"# 说明: 已使用ffprobe检测过滤无效直播源\n\n")
-            for channel_line in filtered_channels:
+            f.write(f"# 数据来源: https://github.com/q1017673817/iptvz/blob/main/zubo_all.txt\n\n")
+            for channel_line in all_channels:
                 # 确保行中没有双引号
                 channel_line_clean = channel_line.replace('"', '')
                 f.write(f"{channel_line_clean}\n")
         
         debug_log("formatted_live_sources.txt 生成成功")
-        
-        # 生成统计信息
-        debug_log(f"最终统计:")
-        debug_log(f"- 原始频道数: {len(all_channels)}")
-        debug_log(f"- 过滤后频道数: {len(filtered_channels)}")
-        debug_log(f"- 已分类频道数: {sum(len(channels) for channels in categorized_channels.values())}")
-        debug_log(f"- 未分类频道数: {len(uncategorized_channels)}")
         
     except Exception as e:
         debug_log(f"生成文件失败: {e}")
@@ -716,17 +604,16 @@ def main():
             debug_log("错误: 仍然没有解析到任何频道")
             return 1
         
-        debug_log("正在使用ffprobe检测直播源有效性...")
-        debug_log("注意: 此过程可能需要较长时间，请耐心等待...")
-        filtered_channels = filter_valid_channels_by_region(formatted_channels, timeout=8)
-        
         debug_log("正在重新分类频道...")
-        categorized_channels, uncategorized_channels = categorize_channels(filtered_channels)
+        categorized_channels, uncategorized_channels = categorize_channels(formatted_channels)
         
         debug_log("正在生成输出文件...")
-        generate_output_files(categorized_channels, uncategorized_channels, formatted_channels, filtered_channels)
+        generate_output_files(categorized_channels, uncategorized_channels, formatted_channels)
         
         debug_log("完成！")
+        debug_log(f"已处理频道总数: {len(formatted_channels)}")
+        debug_log(f"已分类频道数: {sum(len(channels) for channels in categorized_channels.values())}")
+        debug_log(f"未分类频道数: {len(uncategorized_channels)}")
         debug_log("生成的文件:")
         debug_log("- reclassified_live_sources.txt (重新分类的直播源)")
         debug_log("- formatted_live_sources.txt (仅格式化的直播源)")
