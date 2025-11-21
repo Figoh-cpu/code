@@ -195,10 +195,10 @@ def test_stream_with_ffprobe(url, timeout=10):
         debug_log(f"✗ 流检测异常: {url} - {str(e)}")
         return False, str(e)
 
-def filter_valid_channels_by_region(formatted_channels, test_count=1, timeout=8):
+def filter_valid_channels_by_region(formatted_channels, timeout=8):
     """
     按地区运营商过滤有效频道
-    每个地区运营商只测试前test_count个频道
+    每个地区运营商测试第一个频道，有效则保留该地区所有频道
     """
     debug_log("开始按地区运营商过滤有效频道...")
     
@@ -213,37 +213,43 @@ def filter_valid_channels_by_region(formatted_channels, test_count=1, timeout=8)
     valid_channels = []
     total_regions = len(region_channels)
     processed_regions = 0
+    valid_regions = 0
+    invalid_regions = 0
+    
+    debug_log(f"发现 {total_regions} 个不同的地区运营商")
     
     for region, channels in region_channels.items():
         processed_regions += 1
-        debug_log(f"处理地区 [{processed_regions}/{total_regions}]: {region}")
+        debug_log(f"处理地区 [{processed_regions}/{total_regions}]: {region} (包含 {len(channels)} 个频道)")
         
-        # 每个地区只测试前test_count个频道
-        test_channels = channels[:test_count]
-        region_has_valid_channel = False
-        
-        for i, (channel_name, channel_url) in enumerate(test_channels):
-            debug_log(f"  测试频道 {i+1}/{len(test_channels)}: {channel_name}")
+        if not channels:
+            continue
             
-            # 测试流地址
-            is_valid, error_msg = test_stream_with_ffprobe(channel_url, timeout)
-            
-            if is_valid:
-                # 如果测试通过，保留该地区的所有频道
-                region_has_valid_channel = True
-                debug_log(f"  ✓ 地区 {region} 验证通过，保留所有频道")
-                break
-            else:
-                debug_log(f"  ✗ 频道测试失败: {error_msg}")
+        # 测试该地区的第一个频道
+        first_channel_name, first_channel_url = channels[0]
+        debug_log(f"  测试第一个频道: {first_channel_name}")
         
-        if region_has_valid_channel:
-            # 保留该地区的所有频道
+        # 测试流地址
+        is_valid, error_msg = test_stream_with_ffprobe(first_channel_url, timeout)
+        
+        if is_valid:
+            # 如果测试通过，保留该地区的所有频道
+            valid_regions += 1
             for channel_name, channel_url in channels:
                 valid_channels.append(f'{channel_name},{channel_url}${region}')
+            debug_log(f"  ✓ 地区 {region} 验证通过，保留 {len(channels)} 个频道")
         else:
-            debug_log(f"  ✗ 地区 {region} 无有效频道，全部过滤")
+            # 如果测试失败，删除该地区的所有频道
+            invalid_regions += 1
+            debug_log(f"  ✗ 地区 {region} 验证失败，删除 {len(channels)} 个频道 - {error_msg}")
     
-    debug_log(f"地区运营商过滤完成: 原有 {len(formatted_channels)} 个频道，过滤后 {len(valid_channels)} 个频道")
+    debug_log(f"地区运营商过滤完成:")
+    debug_log(f"- 总地区数: {total_regions}")
+    debug_log(f"- 有效地区: {valid_regions}")
+    debug_log(f"- 无效地区: {invalid_regions}")
+    debug_log(f"- 原有频道: {len(formatted_channels)}")
+    debug_log(f"- 过滤后频道: {len(valid_channels)}")
+    
     return valid_channels
 
 # 完整的分类映射（按照您要求的顺序）
@@ -648,7 +654,7 @@ def generate_output_files(categorized_channels, uncategorized_channels, all_chan
             
             # 添加未分类的频道
             if uncategorized_channels:
-                f.write('其他,#genre#\n')
+                f.write('其他频道,#genre#\n')
                 for channel in uncategorized_channels:
                     f.write(f"{channel}\n")
         
@@ -712,7 +718,7 @@ def main():
         
         debug_log("正在使用ffprobe检测直播源有效性...")
         debug_log("注意: 此过程可能需要较长时间，请耐心等待...")
-        filtered_channels = filter_valid_channels_by_region(formatted_channels, test_count=1, timeout=8)
+        filtered_channels = filter_valid_channels_by_region(formatted_channels, timeout=8)
         
         debug_log("正在重新分类频道...")
         categorized_channels, uncategorized_channels = categorize_channels(filtered_channels)
