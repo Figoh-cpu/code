@@ -2,15 +2,20 @@ import requests
 import re
 import subprocess
 import concurrent.futures
-import time
+import os
+import sys
 from collections import defaultdict
 
 def download_file(url):
     """下载原始配置文件"""
     print("正在下载配置文件...")
-    response = requests.get(url)
-    response.raise_for_status()
-    return response.text
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        return response.text
+    except requests.RequestException as e:
+        print(f"下载文件失败: {e}")
+        sys.exit(1)
 
 def remove_first_two_lines(content):
     """删除前两行"""
@@ -46,6 +51,8 @@ def parse_groups(content):
             parts = line.split(',', 1)
             if len(parts) == 2:
                 channel_name, channel_url = parts
+                # 清理URL中的特殊字符
+                channel_url = channel_url.strip()
                 current_channels.append((channel_name, channel_url))
     
     # 保存最后一个分组
@@ -58,13 +65,19 @@ def check_stream(url, timeout=5):
     """使用ffprobe检测流是否有效"""
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_streams", "-i", url],
+            ["ffprobe", "-v", "error", "-show_streams", "-select_streams", "v:0", 
+             "-of", "default=noprint_wrappers=1:nokey=1", "-i", url],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout + 2
         )
-        return b"codec_type" in result.stdout
-    except Exception:
+        # 检查是否有视频流输出
+        return result.returncode == 0 and result.stdout
+    except subprocess.TimeoutExpired:
+        print(f"检测超时: {url}")
+        return False
+    except Exception as e:
+        print(f"检测失败 {url}: {e}")
         return False
 
 def test_group_first_channel(group_name, channels):
@@ -75,15 +88,18 @@ def test_group_first_channel(group_name, channels):
     first_channel_name, first_channel_url = channels[0]
     print(f"测试分组 '{group_name}' 的第一个频道: {first_channel_name}")
     
-    is_valid = check_stream(first_channel_url)
-    if is_valid:
-        print(f"✓ 分组 '{group_name}' 有效")
-    else:
-        print(f"✗ 分组 '{group_name}' 无效")
-    
-    return group_name, is_valid
+    try:
+        is_valid = check_stream(first_channel_url)
+        if is_valid:
+            print(f"✓ 分组 '{group_name}' 有效")
+        else:
+            print(f"✗ 分组 '{group_name}' 无效")
+        return group_name, is_valid
+    except Exception as e:
+        print(f"测试分组 '{group_name}' 时出错: {e}")
+        return group_name, False
 
-def test_groups(groups, max_workers=10):
+def test_groups(groups, max_workers=5):
     """测试所有分组的有效性"""
     print(f"🚀 启动多线程检测（共 {len(groups)} 个分组）...")
     valid_groups = {}
@@ -107,12 +123,17 @@ def test_groups(groups, max_workers=10):
 def process_valid_channels(valid_groups):
     """处理有效频道，生成平表格式"""
     flat_channels = []
+    seen_channels = set()  # 用于去重
     
     for group_name, channels in valid_groups.items():
         for channel_name, channel_url in channels:
-            # 在URL后添加$运营商分组
-            processed_url = f"{channel_url}${group_name}"
-            flat_channels.append((channel_name, processed_url, group_name))
+            # 创建唯一标识进行去重
+            channel_key = f"{channel_name}|{channel_url}"
+            if channel_key not in seen_channels:
+                seen_channels.add(channel_key)
+                # 在URL后添加$运营商分组
+                processed_url = f"{channel_url}${group_name}"
+                flat_channels.append((channel_name, processed_url, group_name))
     
     return flat_channels
 
@@ -174,11 +195,31 @@ def save_flat_channels(channels, output_file):
     
     print(f"平表格式已保存到: {output_file}")
 
+def check_ffmpeg_availability():
+    """检查ffmpeg是否可用"""
+    try:
+        result = subprocess.run(['ffprobe', '-version'], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            print("✅ ffprobe 可用")
+            return True
+        else:
+            print("❌ ffprobe 不可用")
+            return False
+    except Exception as e:
+        print(f"❌ 检查ffprobe时出错: {e}")
+        return False
+
 def main():
     # 配置文件URL
     url = "https://raw.githubusercontent.com/q1017673817/iptvz/main/zubo_all.txt"
     
     try:
+        # 检查ffmpeg是否可用
+        if not check_ffmpeg_availability():
+            print("请确保已安装ffmpeg")
+            sys.exit(1)
+        
         # 1. 下载文件
         content = download_file(url)
         
@@ -192,8 +233,12 @@ def main():
         original_groups = parse_groups(content)
         print(f"找到 {len(original_groups)} 个原始分组")
         
-        # 5. 测试分组有效性
-        valid_groups = test_groups(original_groups)
+        # 显示前几个分组作为示例
+        sample_groups = list(original_groups.keys())[:5]
+        print(f"示例分组: {sample_groups}")
+        
+        # 5. 测试分组有效性（减少并发数以避免资源限制）
+        valid_groups = test_groups(original_groups, max_workers=3)
         
         # 6. 处理有效频道，生成平表
         flat_channels = process_valid_channels(valid_groups)
@@ -222,17 +267,7 @@ def main():
         print(f"处理过程中出现错误: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # 检查ffprobe是否可用
-    try:
-        subprocess.run(['ffprobe', '-version'], capture_output=True, check=True)
-        print("✅ ffprobe 可用，将使用ffprobe进行流媒体检测")
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        print("❌ 警告: ffprobe 未找到或不可用，请安装ffmpeg")
-        print("Ubuntu/Debian: sudo apt install ffmpeg")
-        print("macOS: brew install ffmpeg")
-        print("Windows: 从 https://ffmpeg.org/download.html 下载")
-        exit(1)
-    
     main()
